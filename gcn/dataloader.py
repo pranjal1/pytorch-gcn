@@ -7,13 +7,21 @@ from torch_geometric.data import InMemoryDataset, Data
 from sklearn.preprocessing import LabelEncoder
 
 TMP_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../tmp"))
+click_df_path = os.path.join(TMP_DIR, "dataset/yoochoose-clicks.dat")
+buy_df_path = os.path.join(TMP_DIR, "dataset/yoochoose-buys.dat")
+
+
+df = pd.read_csv(click_df_path, header=None)
+df.columns = ["session_id", "timestamp", "item_id", "category"]
+buy_df = pd.read_csv(buy_df_path, header=None)
+buy_df.columns = ["session_id", "timestamp", "item_id", "price", "quantity"]
+df["label"] = df.session_id.isin(buy_df.session_id)
+del buy_df
 
 
 class YooChooseDataset(InMemoryDataset):
     def __init__(
         self,
-        click_df_path,
-        buy_df_path,
         root=None,
         transform=None,
         pre_transform=None,
@@ -25,18 +33,9 @@ class YooChooseDataset(InMemoryDataset):
             pre_transform=pre_transform,
             pre_filter=pre_filter,
         )
-        self.click_df_path = click_df_path
-        self.buy_df_path = buy_df_path
-        self.initialize_df()
         self.data, self.slices = torch.load(self.processed_paths[0])
 
-    def initialize_df(self):
-        self.df = pd.read_csv(self.click_df_path, header=None)
-        self.df.columns = ["session_id", "timestamp", "item_id", "category"]
-        buy_df = pd.read_csv(self.buy_df_path, header=None)
-        buy_df.columns = ["session_id", "timestamp", "item_id", "price", "quantity"]
-        self.df["label"] = self.df.session_id.isin(buy_df.session_id)
-        del buy_df
+    # def initialize_df(self):
 
     @property
     def raw_file_names(self):
@@ -54,7 +53,7 @@ class YooChooseDataset(InMemoryDataset):
         data_list = []
 
         # process by session_id
-        grouped = self.df.groupby("session_id")
+        grouped = df.groupby("session_id")
         for session_id, group in tqdm(grouped):
             sess_item_id = LabelEncoder().fit_transform(group.item_id)
             group = group.reset_index(drop=True)
@@ -80,3 +79,9 @@ class YooChooseDataset(InMemoryDataset):
 
         data, slices = self.collate(data_list)
         torch.save((data, slices), self.processed_paths[0])
+
+
+if __name__ == "__main__":
+    o = YooChooseDataset(
+        root="~/GCN/pytorch-gcn/tmp/dataset/",
+    )

@@ -1,8 +1,9 @@
 import os
 
 import torch
-from tqdm import tqdm
 import pandas as pd
+from tqdm import tqdm
+from loguru import logger
 from torch_geometric.data import InMemoryDataset, Data
 from sklearn.preprocessing import LabelEncoder
 
@@ -21,11 +22,7 @@ del buy_df
 
 class YooChooseDataset(InMemoryDataset):
     def __init__(
-        self,
-        root=None,
-        transform=None,
-        pre_transform=None,
-        pre_filter=None,
+        self, root, transform=None, pre_transform=None, pre_filter=None,
     ):
         super().__init__(
             root=root,
@@ -35,25 +32,42 @@ class YooChooseDataset(InMemoryDataset):
         )
         self.data, self.slices = torch.load(self.processed_paths[0])
 
-    # def initialize_df(self):
-
     @property
     def raw_file_names(self):
-        return []
+        logger.info("Required files check!")
+        return [
+            os.path.join(TMP_DIR, "dataset/clicks_small.dat"),
+            os.path.join(TMP_DIR, "dataset/buys_small.dat"),
+        ]
 
     @property
     def processed_file_names(self):
-        return [os.path.join(TMP_DIR, "yoochoose_processed.dataset")]
+        return [os.path.join(TMP_DIR, "yoochoose_click_binary_1M_sess.dataset")]
 
     def download(self):
-        pass
+        logger.error(
+            f"Can not find files {self.raw_paths}. Please check and place the files in correct path!"
+        )
+        raise FileNotFoundError
+
+    def initialize_df(self):
+        click_df_path = self.raw_paths[0]
+        buy_df_path = self.raw_paths[1]
+        logger.info("Loading dataset for processing...")
+        self.df = pd.read_csv(click_df_path, header=None)
+        self.df.columns = ["session_id", "timestamp", "item_id", "category"]
+        buy_df = pd.read_csv(buy_df_path, header=None)
+        buy_df.columns = ["session_id", "timestamp", "item_id", "price", "quantity"]
+        self.df["label"] = self.df.session_id.isin(buy_df.session_id)
+        del buy_df
+        logger.info("Loading dataset done!")
 
     def process(self):
-
+        self.initialize_df()
         data_list = []
 
-        # process by session_id
-        grouped = df.groupby("session_id")
+        logger.info("Starting processing...")
+        grouped = self.df.groupby("session_id")
         for session_id, group in tqdm(grouped):
             sess_item_id = LabelEncoder().fit_transform(group.item_id)
             group = group.reset_index(drop=True)
@@ -75,13 +89,14 @@ class YooChooseDataset(InMemoryDataset):
             y = torch.FloatTensor([group.label.values[0]])
 
             data = Data(x=x, edge_index=edge_index, y=y)
+            print(data)
             data_list.append(data)
-
+        logger.info("Completed processing!")
         data, slices = self.collate(data_list)
         torch.save((data, slices), self.processed_paths[0])
+        logger.info(f"Processed files saved as {self.processed_paths[0]}")
 
 
 if __name__ == "__main__":
-    o = YooChooseDataset(
-        root="~/GCN/pytorch-gcn/tmp/dataset/",
-    )
+    o = YooChooseDataset(root=TMP_DIR)
+    print(o.data)

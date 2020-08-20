@@ -6,3 +6,4 @@ torch-sparse==0.6.7
 torch-spline-conv==1.2.0
 torchvision==0.7.0
 tqdm==4.48.2
+loguru==0.5.1

@@ -1,6 +1,7 @@
 import os
 
 import torch
+import numpy as np
 import pandas as pd
 from tqdm import tqdm
 from loguru import logger
@@ -10,14 +11,6 @@ from sklearn.preprocessing import LabelEncoder
 TMP_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../tmp"))
 click_df_path = os.path.join(TMP_DIR, "dataset/yoochoose-clicks.dat")
 buy_df_path = os.path.join(TMP_DIR, "dataset/yoochoose-buys.dat")
-
-
-df = pd.read_csv(click_df_path, header=None)
-df.columns = ["session_id", "timestamp", "item_id", "category"]
-buy_df = pd.read_csv(buy_df_path, header=None)
-buy_df.columns = ["session_id", "timestamp", "item_id", "price", "quantity"]
-df["label"] = df.session_id.isin(buy_df.session_id)
-del buy_df
 
 
 class YooChooseDataset(InMemoryDataset):
@@ -50,23 +43,45 @@ class YooChooseDataset(InMemoryDataset):
         )
         raise FileNotFoundError
 
-    def initialize_df(self):
-        click_df_path = self.raw_paths[0]
-        buy_df_path = self.raw_paths[1]
-        logger.info("Loading dataset for processing...")
+    def initialize_df(self, sample_sessions=None):
+        logger.info("Loading dataset...")
         self.df = pd.read_csv(click_df_path, header=None)
         self.df.columns = ["session_id", "timestamp", "item_id", "category"]
+
+        # remove sessions with less than 3 item ids
+        logger.info("Removing sessions with less than 3 item ids...")
+        self.df["valid_session"] = self.df.session_id.map(
+            self.df.groupby("session_id")["item_id"].size() > 2
+        )
+        self.df = self.df.loc[self.df.valid_session].drop("valid_session", axis=1)
+
+        # the number of sessions might be very high, sampling 1 million of them for now
+        if sample_sessions:
+            logger.info(f"Sampling {sample_sessions} sessions...")
+            sampled_session_id = np.random.choice(
+                self.df.session_id.unique(), sample_sessions, replace=False
+            )
+            self.df = self.df.loc[self.df.session_id.isin(sampled_session_id)].copy()
+
+        # map the item ids to a small range
+        logger.info("Mapping item ids to smaller range...")
+        item_encoder = LabelEncoder()
+        self.df["item_id"] = item_encoder.fit_transform(self.df.item_id)
+
+        # get the target class (buy or not buy event) for the sessions
+        logger.info("Determining the target class of the sessions (buy/not buy)...")
         buy_df = pd.read_csv(buy_df_path, header=None)
         buy_df.columns = ["session_id", "timestamp", "item_id", "price", "quantity"]
         self.df["label"] = self.df.session_id.isin(buy_df.session_id)
+
         del buy_df
         logger.info("Loading dataset done!")
 
     def process(self):
-        self.initialize_df()
+        self.initialize_df(sample_sessions=250000)
         data_list = []
 
-        logger.info("Starting processing...")
+        logger.info("Processing dataset...")
         grouped = self.df.groupby("session_id")
         for session_id, group in tqdm(grouped):
             sess_item_id = LabelEncoder().fit_transform(group.item_id)
@@ -89,7 +104,6 @@ class YooChooseDataset(InMemoryDataset):
             y = torch.FloatTensor([group.label.values[0]])
 
             data = Data(x=x, edge_index=edge_index, y=y)
-            print(data)
             data_list.append(data)
         logger.info("Completed processing!")
         data, slices = self.collate(data_list)

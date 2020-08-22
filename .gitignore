@@ -5,3 +5,5 @@
 **vscode**
 tmp/dataset/
 **pycache**
+**.dataset
+processed/

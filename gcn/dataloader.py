@@ -23,7 +23,9 @@ class YooChooseDataset(InMemoryDataset):
             pre_transform=pre_transform,
             pre_filter=pre_filter,
         )
-        self.data, self.slices = torch.load(self.processed_paths[0])
+        self.data, self.slices, self.num_embeddings = torch.load(
+            self.processed_paths[0]
+        )
 
     @property
     def raw_file_names(self):
@@ -55,7 +57,7 @@ class YooChooseDataset(InMemoryDataset):
         )
         self.df = self.df.loc[self.df.valid_session].drop("valid_session", axis=1)
 
-        # the number of sessions might be very high, sampling 1 million of them for now
+        # the number of sessions might be very high, performing sampling
         if sample_sessions:
             logger.info(f"Sampling {sample_sessions} sessions...")
             sampled_session_id = np.random.choice(
@@ -73,7 +75,7 @@ class YooChooseDataset(InMemoryDataset):
         buy_df = pd.read_csv(buy_df_path, header=None)
         buy_df.columns = ["session_id", "timestamp", "item_id", "price", "quantity"]
         self.df["label"] = self.df.session_id.isin(buy_df.session_id)
-
+        self.num_embeddings = self.df.item_id.max() + 1
         del buy_df
         logger.info("Loading dataset done!")
 
@@ -107,7 +109,7 @@ class YooChooseDataset(InMemoryDataset):
             data_list.append(data)
         logger.info("Completed processing!")
         data, slices = self.collate(data_list)
-        torch.save((data, slices), self.processed_paths[0])
+        torch.save((data, slices, self.num_embeddings), self.processed_paths[0])
         logger.info(f"Processed files saved as {self.processed_paths[0]}")
 
 

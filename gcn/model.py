@@ -4,6 +4,8 @@ from torch.nn import Sequential as Seq
 from torch_geometric.nn import MessagePassing
 from torch_geometric.utils import add_remaining_self_loops
 
+from loguru import logger
+
 
 class SAGEConv(MessagePassing):
     def __init__(self, in_channels, out_channels):

@@ -7,3 +7,4 @@ tmp/dataset/
 **pycache**
 **.dataset
 processed/
+**.data

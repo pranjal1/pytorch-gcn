@@ -1,11 +1,12 @@
 import os
 
 import numpy as np
+from tqdm import tqdm
 from pathlib import Path
 from loguru import logger
 
 import torch
-from torch.utils.data import Dataset, DataLoader
+from torch_geometric.data import DataLoader
 from sklearn.metrics import roc_auc_score
 
 
@@ -20,7 +21,7 @@ else:
 
 class YooChooseGNN:
     def __init__(
-        self, dataset_dir, model_save_path, epochs=10, lr=0.005, batch_size=512,
+        self, dataset_dir, model_save_path, epochs=1, lr=0.005, batch_size=512,
     ):
         self.epochs = epochs
         self.lr = lr
@@ -49,7 +50,7 @@ class YooChooseGNN:
     def train(self):
         self.model.train()
         epoch_loss_all = 0
-        for data in self.train_loader:
+        for data in tqdm(self.train_loader):
             data = data.to(self.device)
             self.optimizer.zero_grad()
             output = self.model(data)
@@ -58,7 +59,7 @@ class YooChooseGNN:
             loss.backward()
             epoch_loss_all += data.num_graphs * loss.item()
             self.optimizer.step()
-        logger.info("Training Loss --> {}".format(epoch_loss_all / len(train_dataset)))
+        return epoch_loss_all / len(self.train_dataset)
 
     def evaluate(self, loader):
         self.model.eval()
@@ -86,16 +87,19 @@ class YooChooseGNN:
 
     def pipeline(self):
         self.train_loader, self.val_loader, self.test_loader = (
-            DataLoader(x)
+            DataLoader(x, batch_size=self.batch_size)
             for x in [self.train_dataset, self.val_dataset, self.test_dataset]
         )
+        logger.info(f"Training for {self.epochs} epochs...")
         for epoch in range(self.epochs):
+            logger.info(f"Epoch {epoch+1} started.")
             loss = self.train()
-            train_acc = evaluate(self.train_loader)
-            val_acc = evaluate(self.val_loader)
-            test_acc = evaluate(self.test_loader)
+            logger.info("Generating Metrics...")
+            train_acc = self.evaluate(self.train_loader)
+            val_acc = self.evaluate(self.val_loader)
+            test_acc = self.evaluate(self.test_loader)
             logger.info(
-                "Epoch: {:03d}, Loss: {:.5f}, Train Auc: {:.5f}, Val Auc: {:.5f}, Test Auc: {:.5f}".format(
+                "Epoch: {}, Loss: {:.5f}, Train Auc: {:.5f}, Val Auc: {:.5f}, Test Auc: {:.5f}".format(
                     epoch, loss, train_acc, val_acc, test_acc
                 )
             )
@@ -104,6 +108,10 @@ class YooChooseGNN:
 
 if __name__ == "__main__":
     parent_dir = Path(os.path.dirname(__file__)).resolve().parents[0].as_posix()
+    dataset_dir = (os.path.join(parent_dir, "tmp"),)
+    model_save_path = os.path.join(parent_dir, "tmp", "yoochoose_model.data")
+    logger.info(f"dataset dir -> {dataset_dir}")
+    logger.info(f"model_save_path -> {model_save_path}")
     m = YooChooseGNN(
         dataset_dir=os.path.join(parent_dir, "tmp"),
         model_save_path=os.path.join(parent_dir, "tmp", "yoochoose_model.data"),

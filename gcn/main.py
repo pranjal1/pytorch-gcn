@@ -1,54 +1,111 @@
+import os
+
+import numpy as np
+from pathlib import Path
 from loguru import logger
+
+import torch
+from torch.utils.data import Dataset, DataLoader
+from sklearn.metrics import roc_auc_score
+
 
 from .model import Net
 from .dataloader import YooChooseDataset
 
-#reference: https://towardsdatascience.com/hands-on-graph-neural-networks-with-pytorch-pytorch-geometric-359487e221a8
-
-def train():
-    model.train()
-
-    loss_all = 0
-    for data in train_loader:
-        data = data.to(device)
-        optimizer.zero_grad()
-        output = model(data)
-        label = data.y.to(device)
-        loss = crit(output, label)
-        loss.backward()
-        loss_all += data.num_graphs * loss.item()
-        optimizer.step()
-    return loss_all / len(train_dataset)
-    
-device = torch.device('cuda')
-model = Net().to(device)
-optimizer = torch.optim.Adam(model.parameters(), lr=0.005)
-crit = torch.nn.BCELoss()
-train_loader = DataLoader(train_dataset, batch_size=batch_size)
-for epoch in range(num_epochs):
-    train()
+if torch.cuda.is_available():
+    DEVICE = "cuda:0"
+else:
+    DEVICE = "cpu"
 
 
-def evaluate(loader):
-    model.eval()
+class YooChooseGNN:
+    def __init__(
+        self, dataset_dir, model_save_path, epochs=10, lr=0.005, batch_size=512,
+    ):
+        self.epochs = epochs
+        self.lr = lr
+        self.batch_size = batch_size
+        self.dataset = YooChooseDataset(root=dataset_dir)
+        self._dataset_utils()
+        self.device = torch.device(DEVICE)
+        self.model = Net(self.dataset.num_embeddings, embed_dim=128).to(self.device)
+        self.optimizer = torch.optim.Adam(self.model.parameters(), self.lr)
+        self.crit = torch.nn.BCELoss()
+        self.model_save_path = model_save_path
 
-    predictions = []
-    labels = []
+    def _dataset_utils(self):
+        len_ds = len(self.dataset)
+        logger.info(f"Shuffling dataset with {len_ds} samples.")
+        self.dataset = self.dataset.shuffle()
+        self.train_dataset = self.dataset[: int(0.8 * len_ds)]
+        self.val_dataset = self.dataset[int(0.8 * len_ds) : int(0.9 * len_ds)]
+        self.test_dataset = self.dataset[int(0.9 * len_ds) :]
+        logger.info(
+            "Training samples: {}, Validation samples: {}, Testing samples: {}".format(
+                len(self.train_dataset), len(self.val_dataset), len(self.test_dataset),
+            )
+        )
 
-    with torch.no_grad():
-        for data in loader:
+    def train(self):
+        self.model.train()
+        epoch_loss_all = 0
+        for data in self.train_loader:
+            data = data.to(self.device)
+            self.optimizer.zero_grad()
+            output = self.model(data)
+            label = data.y.to(self.device)
+            loss = self.crit(output, label)
+            loss.backward()
+            epoch_loss_all += data.num_graphs * loss.item()
+            self.optimizer.step()
+        logger.info("Training Loss --> {}".format(epoch_loss_all / len(train_dataset)))
 
-            data = data.to(device)
-            pred = model(data).detach().cpu().numpy()
+    def evaluate(self, loader):
+        self.model.eval()
+        predictions = []
+        labels = []
 
-            label = data.y.detach().cpu().numpy()
-            predictions.append(pred)
-            labels.append(label)
+        with torch.no_grad():
+            for data in loader:
 
-for epoch in range(1):
-    loss = train()
-    train_acc = evaluate(train_loader)
-    val_acc = evaluate(val_loader)    
-    test_acc = evaluate(test_loader)
-    print('Epoch: {:03d}, Loss: {:.5f}, Train Auc: {:.5f}, Val Auc: {:.5f}, Test Auc: {:.5f}'.
-          format(epoch, loss, train_acc, val_acc, test_acc))
+                data = data.to(self.device)
+                pred = self.model(data).detach().cpu().numpy()
+
+                label = data.y.detach().cpu().numpy()
+                predictions.append(pred)
+                labels.append(label)
+
+        predictions = np.hstack(predictions)
+        labels = np.hstack(labels)
+
+        return roc_auc_score(labels, predictions)
+
+    def save_model(self):
+        logger.info(f"Saving Model in path {self.model_save_path}...")
+        torch.save(self.model.state_dict(), self.model_save_path)
+
+    def pipeline(self):
+        self.train_loader, self.val_loader, self.test_loader = (
+            DataLoader(x)
+            for x in [self.train_dataset, self.val_dataset, self.test_dataset]
+        )
+        for epoch in range(self.epochs):
+            loss = self.train()
+            train_acc = evaluate(self.train_loader)
+            val_acc = evaluate(self.val_loader)
+            test_acc = evaluate(self.test_loader)
+            logger.info(
+                "Epoch: {:03d}, Loss: {:.5f}, Train Auc: {:.5f}, Val Auc: {:.5f}, Test Auc: {:.5f}".format(
+                    epoch, loss, train_acc, val_acc, test_acc
+                )
+            )
+        self.save_model()
+
+
+if __name__ == "__main__":
+    parent_dir = Path(os.path.dirname(__file__)).resolve().parents[0].as_posix()
+    m = YooChooseGNN(
+        dataset_dir=os.path.join(parent_dir, "tmp"),
+        model_save_path=os.path.join(parent_dir, "tmp", "yoochoose_model.data"),
+    )
+    m.pipeline()

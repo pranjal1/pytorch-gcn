@@ -7,8 +7,9 @@ from .sage_conv import SAGEConv
 
 
 class Net(torch.nn.Module):
-    def __init__(self, num_embeddings, embed_dim=128):
+    def __init__(self, num_embeddings, embed_dim=128, seed=42):
         super(Net, self).__init__()
+        torch.manual_seed(seed)
         self.embed_dim = embed_dim
         self.conv1 = SAGEConv(self.embed_dim, 128)
         self.pool1 = TopKPooling(128, ratio=0.8)

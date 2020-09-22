@@ -100,7 +100,7 @@ class YooChooseGNN:
             test_acc = self.evaluate(self.test_loader)
             logger.info(
                 "Epoch: {}, Loss: {:.5f}, Train Auc: {:.5f}, Val Auc: {:.5f}, Test Auc: {:.5f}".format(
-                    epoch, loss, train_acc, val_acc, test_acc
+                    epoch + 1, loss, train_acc, val_acc, test_acc
                 )
             )
         self.save_model()
